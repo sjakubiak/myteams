@@ -57,3 +57,4 @@ main.with-nav { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
 .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .play { position: absolute; inset: 0; display: grid; place-items: center; font-size: 2.2rem; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
 .block-btn { display: block; text-align: center; margin-bottom: 16px; }
+.signin { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }

@@ -6,11 +6,13 @@ name: Android APK
 #   Secret   ANDROID_KEYSTORE_BASE64    signing key (base64)
 #   Secret   ANDROID_KEYSTORE_PASSWORD  its password
 # With all three set, each build is published as a GitHub Release with the APK attached.
-# Without them, it still builds a test APK so changes are checked.
+# Quick test without the secrets: put the app address in android/app-url.txt. Builds then publish
+# a "test" pre-release signed with a throwaway key (the app shows a small address bar, and it
+# must be uninstalled before installing the real, signed version).
 
 on:
   push:
-    branches: [main]
+    branches: [main, android-apk]
     paths: ["android/**", ".github/workflows/android.yml", "public/.well-known/**"]
   pull_request:
     paths: ["android/**", ".github/workflows/android.yml"]
@@ -27,10 +29,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      APP_URL: ${{ inputs.app_url || vars.APP_URL }}
       HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Work out the app address
+        env:
+          FROM_INPUT: ${{ inputs.app_url || vars.APP_URL }}
+        run: |
+          url="$FROM_INPUT"
+          if [ -z "$url" ] && [ -f android/app-url.txt ]; then url="$(tr -d '[:space:]' < android/app-url.txt)"; fi
+          echo "APP_URL=$url" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
@@ -59,10 +68,16 @@ jobs:
           path: MyTeams.apk
 
       - name: Publish release
-        if: github.event_name != 'pull_request' && env.HAS_KEY == 'true' && env.APP_URL != ''
+        if: github.event_name != 'pull_request' && env.APP_URL != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "android-v1.0.${GITHUB_RUN_NUMBER}" MyTeams.apk \
-            --title "My Teams for Android 1.0.${GITHUB_RUN_NUMBER}" \
-            --notes "Download MyTeams.apk on your Android phone and open it to install. Points at ${APP_URL}."
+          if [ "$HAS_KEY" = "true" ]; then
+            gh release create "android-v1.0.${GITHUB_RUN_NUMBER}" MyTeams.apk --target "$GITHUB_SHA" \
+              --title "My Teams for Android 1.0.${GITHUB_RUN_NUMBER}" \
+              --notes "Download MyTeams.apk on your Android phone and open it to install. Points at ${APP_URL}."
+          else
+            gh release create "android-test-${GITHUB_RUN_NUMBER}" MyTeams.apk --target "$GITHUB_SHA" --prerelease \
+              --title "My Teams for Android: test build ${GITHUB_RUN_NUMBER}" \
+              --notes "Test build for ${APP_URL}. Signed with a throwaway key: uninstall it before installing a real release."
+          fi
