@@ -11,4 +11,4 @@ ENV NODE_ENV=production DATABASE_PATH=/data/app.db
 COPY --from=build /app ./
 VOLUME /data
 EXPOSE 3000
-CMD ["npx", "next", "start", "-p", "3000"]
+CMD ["sh", "-c", "npx next start -p ${PORT:-3000}"]
