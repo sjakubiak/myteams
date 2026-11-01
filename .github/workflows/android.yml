@@ -1,0 +1,68 @@
+name: Android APK
+
+# Builds the My Teams Android app (a Trusted Web Activity around the hosted PWA).
+# Needs, under Settings > Secrets and variables > Actions:
+#   Variable APP_URL                    e.g. https://myteams-production.up.railway.app
+#   Secret   ANDROID_KEYSTORE_BASE64    signing key (base64)
+#   Secret   ANDROID_KEYSTORE_PASSWORD  its password
+# With all three set, each build is published as a GitHub Release with the APK attached.
+# Without them, it still builds a test APK so changes are checked.
+
+on:
+  push:
+    branches: [main]
+    paths: ["android/**", ".github/workflows/android.yml", "public/.well-known/**"]
+  pull_request:
+    paths: ["android/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: "App address (leave empty to use the APP_URL variable)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      APP_URL: ${{ inputs.app_url || vars.APP_URL }}
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Restore signing key
+        if: env.HAS_KEY == 'true'
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build APK
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ env.HAS_KEY == 'true' && format('{0}/release.jks', runner.temp) || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          gradle -p android assembleRelease -PappUrl="${APP_URL:-https://example.com}"
+          cp android/app/build/outputs/apk/release/app-release.apk MyTeams.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MyTeams-apk
+          path: MyTeams.apk
+
+      - name: Publish release
+        if: github.event_name != 'pull_request' && env.HAS_KEY == 'true' && env.APP_URL != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "android-v1.0.${GITHUB_RUN_NUMBER}" MyTeams.apk \
+            --title "My Teams for Android 1.0.${GITHUB_RUN_NUMBER}" \
+            --notes "Download MyTeams.apk on your Android phone and open it to install. Points at ${APP_URL}."

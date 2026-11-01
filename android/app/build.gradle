@@ -1,0 +1,52 @@
+// Trusted Web Activity: a real Android app that opens the hosted My Teams PWA full screen.
+// Build with: gradle -p android assembleRelease -PappUrl=https://your-app.example.com
+
+plugins { id "com.android.application" }
+
+def appUrl = (project.findProperty("appUrl") ?: "https://example.com").toString().replaceAll("/+\$", "")
+def appHost = new URI(appUrl).host
+def assetStatements = """[{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"web","site":"${appUrl}"}}]"""
+
+android {
+    namespace "com.sjakubiak.myteams"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.sjakubiak.myteams"
+        minSdk 21
+        targetSdk 35
+        versionCode((System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger())
+        versionName "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
+
+        manifestPlaceholders = [hostName: appHost, launchUrl: appUrl + "/"]
+        resValue "string", "asset_statements", assetStatements
+    }
+
+    signingConfigs {
+        release {
+            def ks = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias "myteams"
+                keyPassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig System.getenv("ANDROID_KEYSTORE_PATH") ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.5.0"
+}

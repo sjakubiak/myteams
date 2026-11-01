@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.sjakubiak.myteams",
+      "sha256_cert_fingerprints": ["B2:68:BC:AB:0A:32:D0:1A:6B:6E:DB:2F:5E:4F:60:6C:00:4F:6E:8A:F2:26:83:FE:0F:D8:A7:1A:BC:CE:DB:B6"]
+    }
+  }
+]

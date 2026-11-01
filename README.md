@@ -31,7 +31,11 @@ The app must be running on an HTTPS address (see "Hosting" below; `localhost` wo
 
 To get score alerts on your phone, turn on "Score alerts" for a team and allow notifications when Android asks.
 
-A Play Store listing is possible later by wrapping this same app as a Trusted Web Activity (Google's Bubblewrap tool); no rewrite needed.
+### Or install the APK
+
+`android/` is a small Android app (a Trusted Web Activity) that opens the hosted app full screen, with its own icon and notifications. GitHub Actions builds it (`.github/workflows/android.yml`) and publishes `MyTeams.apk` under **Releases**. See DEPLOY.md, step 5, for setup. The same signed app can go on the Play Store later.
+
+`public/.well-known/assetlinks.json` proves to Android that the APK and the website belong together, which hides the browser address bar. It must match the signing key's SHA-256 fingerprint.
 
 ## Hosting
 
