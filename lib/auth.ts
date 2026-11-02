@@ -3,6 +3,11 @@ import { getServerSession } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 
+// On Render, use the address it assigns when NEXTAUTH_URL isn't set.
+if (!process.env.NEXTAUTH_URL && process.env.RENDER_EXTERNAL_URL) {
+  process.env.NEXTAUTH_URL = process.env.RENDER_EXTERNAL_URL;
+}
+
 /** DEMO_MODE=1 adds a "Try the demo" sign-in for testing without Google set up. Never turn it on for real use. */
 export const demoMode = process.env.DEMO_MODE === "1";
 export const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
