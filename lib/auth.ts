@@ -8,9 +8,13 @@ if (!process.env.NEXTAUTH_URL && process.env.RENDER_EXTERNAL_URL) {
   process.env.NEXTAUTH_URL = process.env.RENDER_EXTERNAL_URL;
 }
 
-/** DEMO_MODE=1 adds a "Try the demo" sign-in for testing without Google set up. Never turn it on for real use. */
-export const demoMode = process.env.DEMO_MODE === "1";
 export const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+
+/**
+ * "Try the demo" sign-in, for testing before Google is set up. On when DEMO_MODE=1, or automatically
+ * when Google sign-in isn't configured (the app couldn't be used otherwise). Off once Google is set up.
+ */
+export const demoMode = process.env.DEMO_MODE === "1" || !googleConfigured;
 
 export const authOptions: NextAuthOptions = {
   providers: [
