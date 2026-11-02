@@ -60,6 +60,6 @@ Any Node host with a persistent disk works for the SQLite file, for example Rail
 ## Notes and limits
 
 - Score alerts are checked every 5 minutes while the app is open. Push notifications when the app is closed would need Web Push and a background job; that's a natural next step.
-- The free TheSportsDB key (`3`) has limited data (for example, fewer past results and some leagues without tables). A Patreon key from TheSportsDB unlocks the full data; set it as `SPORTSDB_API_KEY`.
+- The free TheSportsDB key (`123`) has limited data (for example, fewer past results and some leagues without tables). A Patreon key from TheSportsDB unlocks the full data; set it as `SPORTSDB_API_KEY`.
 - SQLite is fine for one person or a small group. For hosting on a serverless platform such as Vercel, swap `lib/db.ts` for a hosted database (Postgres, Turso).
 - Highlight clips come from TheSportsDB, which only lists them for some games (mostly major football leagues). The YouTube link always works.

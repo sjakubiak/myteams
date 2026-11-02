@@ -2,7 +2,9 @@
 // Covers football, basketball, American football, baseball, ice hockey, rugby, cricket and more.
 import type { GameEvent } from "./stats.ts";
 
-const KEY = process.env.SPORTSDB_API_KEY || "3";
+// "123" is TheSportsDB's current free key; the old free key "3" no longer works, so it is mapped over.
+const RAW_KEY = process.env.SPORTSDB_API_KEY?.trim();
+const KEY = !RAW_KEY || RAW_KEY === "3" ? "123" : RAW_KEY;
 const BASE = process.env.SPORTSDB_BASE_URL || `https://www.thesportsdb.com/api/v1/json/${KEY}`;
 
 export type Team = {
@@ -36,9 +38,17 @@ type Raw = Record<string, string | null | undefined>;
 
 async function get<T = Raw>(path: string, revalidate = 300): Promise<T> {
   const res = await fetch(`${BASE}/${path}`, { next: { revalidate } } as RequestInit);
-  if (!res.ok) throw new Error(`TheSportsDB ${path} failed: ${res.status}`);
   const text = await res.text();
-  return (text ? JSON.parse(text) : {}) as T;
+  if (!res.ok) {
+    console.error(`TheSportsDB ${path} -> HTTP ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`TheSportsDB ${path} failed: ${res.status}`);
+  }
+  try {
+    return (text ? JSON.parse(text) : {}) as T;
+  } catch {
+    console.error(`TheSportsDB ${path} returned non-JSON: ${text.slice(0, 200)}`);
+    throw new Error(`TheSportsDB ${path} returned an unexpected response`);
+  }
 }
 
 const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number(v));

@@ -27,7 +27,7 @@ Service → **Variables** → add:
 | `GOOGLE_CLIENT_SECRET` | from step 2.5 |
 | `NEXTAUTH_URL` | `https://YOUR-ADDRESS` |
 | `NEXTAUTH_SECRET` | any long random string (e.g. from https://generate-secret.vercel.app/32) |
-| `SPORTSDB_API_KEY` | `3` |
+| `SPORTSDB_API_KEY` | `123` |
 
 Railway redeploys automatically when you save.
 

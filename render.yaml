@@ -14,4 +14,4 @@ services:
       - key: NEXTAUTH_SECRET
         generateValue: true
       - key: SPORTSDB_API_KEY
-        value: "3"
+        value: "123"

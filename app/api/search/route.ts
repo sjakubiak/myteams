@@ -8,7 +8,8 @@ export async function GET(req: Request) {
   if (q.length < 2) return NextResponse.json({ teams: [] });
   try {
     return NextResponse.json({ teams: await searchTeams(q) });
-  } catch {
+  } catch (e) {
+    console.error("Team search failed:", e);
     return NextResponse.json({ error: "Team search is unavailable right now" }, { status: 502 });
   }
 }
