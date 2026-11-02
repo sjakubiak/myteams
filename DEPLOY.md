@@ -27,7 +27,7 @@ Service → **Variables** → add:
 | `GOOGLE_CLIENT_SECRET` | from step 2.5 |
 | `NEXTAUTH_URL` | `https://YOUR-ADDRESS` |
 | `NEXTAUTH_SECRET` | any long random string (e.g. from https://generate-secret.vercel.app/32) |
-| `SPORTSDB_API_KEY` | `3` |
+| `SPORTSDB_API_KEY` | `123` |
 
 Railway redeploys automatically when you save.
 
@@ -38,3 +38,18 @@ Railway redeploys automatically when you save.
 3. Open **My Teams** from your home screen and add your teams.
 
 Score alerts stay off until you tick "Score alerts" on a team. When you do, allow notifications when Android asks.
+
+## 5. (Optional) Build the Android APK
+
+The APK is a real Android app that opens My Teams full screen. You only set this up once; after that GitHub builds a new APK automatically.
+
+On GitHub, open **myteams → Settings → Secrets and variables → Actions**:
+
+1. **Variables** tab → **New repository variable**: name `APP_URL`, value `https://YOUR-ADDRESS` (no slash at the end).
+2. **Secrets** tab → **New repository secret**: name `ANDROID_KEYSTORE_BASE64`, value = the whole contents of `keystore-base64.txt` (in the project files Claude gave you).
+3. **Secrets** tab → **New repository secret**: name `ANDROID_KEYSTORE_PASSWORD`, value = the contents of `password.txt`.
+4. **Actions** tab → **Android APK** → **Run workflow**.
+
+After about 3 minutes, a new entry appears under **Releases** on the repo's main page. On your phone, open it, tap **MyTeams.apk**, and allow installing from your browser when Android asks.
+
+Keep `myteams-release.jks` and its password safe: every future update must be signed with the same key, or Android won't install it over the old version.

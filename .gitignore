@@ -5,3 +5,9 @@ node_modules
 data/
 *.tsbuildinfo
 next-env.d.ts
+android/.gradle
+android/build
+android/app/build
+android/local.properties
+*.jks
+*.keystore

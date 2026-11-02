@@ -1,0 +1,17 @@
+# One-click test deploy on Render (free plan): Render dashboard > New > Blueprint > pick this repo.
+# Runs in demo mode ("Try the demo" sign-in, no Google setup). The free plan sleeps when idle,
+# so the first open after a while takes up to a minute, and saved teams reset on redeploys.
+services:
+  - type: web
+    name: myteams
+    runtime: docker
+    plan: free
+    branch: android-apk
+    healthCheckPath: /
+    envVars:
+      - key: DEMO_MODE
+        value: "1"
+      - key: NEXTAUTH_SECRET
+        generateValue: true
+      - key: SPORTSDB_API_KEY
+        value: "123"
