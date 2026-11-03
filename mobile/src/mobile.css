@@ -1,0 +1,8 @@
+body { padding-top: env(safe-area-inset-top); -webkit-tap-highlight-color: transparent; }
+button.linklike { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.bottom-nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 0; font: inherit; font-size: .8rem; color: var(--muted); background: none; border: 0; }
+.bottom-nav button span { font-size: 1.2rem; line-height: 1; }
+.bottom-nav button.active { color: var(--accent); font-weight: 600; }
+.tabs button { flex: 1; text-align: center; padding: 8px; border-radius: 7px; color: var(--muted); font: inherit; font-weight: 500; background: none; border: 0; }
+.tabs button.active { background: var(--accent); color: #fff; }
+.disclaimer { font-size: .75rem; text-align: center; margin: 24px 0 8px; }
