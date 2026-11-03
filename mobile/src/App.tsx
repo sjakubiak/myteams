@@ -18,7 +18,24 @@ const TEAM_TABS: { id: TeamTab; label: string }[] = [
 type Route =
   | { view: "teams" }
   | { view: "team"; id: string; tab: TeamTab }
-  | { view: "feed"; tab: "news" | "highlights" };
+  | { view: "feed"; tab: "news" | "highlights" }
+  | { view: "stats" }
+  | { view: "standings"; league?: string };
+
+// One request per league/team per session, shared by every screen.
+const cache = new Map<string, Promise<unknown>>();
+function once<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  if (!cache.has(key)) cache.set(key, fn().catch((e) => { cache.delete(key); throw e; }));
+  return cache.get(key) as Promise<T>;
+}
+const tableFor = (leagueId: string) => once(`table:${leagueId}`, () => leagueTable(leagueId));
+const lastFor = (teamId: string) => once(`last:${teamId}`, () => lastEvents(teamId));
+const nextFor = (teamId: string) => once(`next:${teamId}`, () => nextEvents(teamId));
+async function leagueIdFor(f: Favourite): Promise<string | null> {
+  if (f.leagueId) return f.leagueId;
+  const t = await once(`team:${f.teamId}`, () => getTeam(f.teamId));
+  return t?.leagueId ?? null;
+}
 
 const POLL_MS = 5 * 60 * 1000;
 
@@ -104,7 +121,7 @@ export default function App() {
         {route.view === "teams" && (
           <Teams
             favourites={favourites}
-            onAdd={(t) => setFavourites((l) => addFavourite(l, { teamId: t.id, name: t.name, sport: t.sport, league: t.league, badge: t.badge }))}
+            onAdd={(t) => setFavourites((l) => addFavourite(l, { teamId: t.id, name: t.name, sport: t.sport, league: t.league, leagueId: t.leagueId, badge: t.badge }))}
             onRemove={(id) => setFavourites((l) => removeFavourite(l, id))}
             onToggle={toggleNotify}
             onOpen={(id) => go({ view: "team", id, tab: "stats" })}
@@ -119,17 +136,29 @@ export default function App() {
             onTab={(tab) => replace({ ...route, tab })}
           />
         )}
+        {route.view === "stats" && (
+          <Overview favourites={favourites} onOpen={(id) => go({ view: "team", id, tab: "stats" })} />
+        )}
+        {route.view === "standings" && (
+          <AllStandings favourites={favourites} league={route.league} onLeague={(league) => replace({ view: "standings", league })} />
+        )}
         {route.view === "feed" && (
           <Feed favourites={favourites} tab={route.tab} onTab={(tab) => replace({ view: "feed", tab })} />
         )}
         <p className="muted disclaimer">Unofficial fan app. Not affiliated with any team or league. Data: TheSportsDB, Google News.</p>
       </main>
       <nav className="bottom-nav" aria-label="Main">
-        <button className={route.view !== "feed" ? "active" : ""} onClick={() => home({ view: "teams" })}>
+        <button className={route.view === "teams" || route.view === "team" ? "active" : ""} onClick={() => home({ view: "teams" })}>
           <span aria-hidden>★</span>My teams
         </button>
+        <button className={route.view === "stats" ? "active" : ""} onClick={() => home({ view: "stats" })}>
+          <span aria-hidden>▦</span>Stats
+        </button>
+        <button className={route.view === "standings" ? "active" : ""} onClick={() => home({ view: "standings" })}>
+          <span aria-hidden>≡</span>Standings
+        </button>
         <button className={route.view === "feed" ? "active" : ""} onClick={() => home({ view: "feed", tab: "news" })}>
-          <span aria-hidden>▤</span>News & highlights
+          <span aria-hidden>▤</span>News
         </button>
       </nav>
     </>
@@ -309,7 +338,7 @@ function TeamView({ id, tab, fav, onTab }: {
   );
 }
 
-function Standings({ league, rows, teamId }: { league: string | null; rows: TableRow[]; teamId: string }) {
+function Standings({ league, rows, teamId, highlight }: { league: string | null; rows: TableRow[]; teamId?: string; highlight?: Set<string> }) {
   if (!rows.length) return <p className="muted card">No standings available for this league.</p>;
   return (
     <section className="card">
@@ -318,13 +347,85 @@ function Standings({ league, rows, teamId }: { league: string | null; rows: Tabl
         <table>
           <thead><tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr></thead>
           <tbody>{rows.map((r) => (
-            <tr key={r.teamId} className={r.teamId === teamId ? "me" : ""}>
+            <tr key={r.teamId} className={r.teamId === teamId || highlight?.has(r.teamId) ? "me" : ""}>
               <td>{r.rank}</td><td>{r.team}</td><td>{r.played}</td><td>{r.win}</td><td>{r.draw}</td><td>{r.loss}</td><td>{r.goalDifference}</td><td><strong>{r.points}</strong></td>
             </tr>
           ))}</tbody>
         </table>
       </div>
     </section>
+  );
+}
+
+/** Stats for every saved team on one screen. */
+function Overview({ favourites, onOpen }: { favourites: Favourite[]; onOpen: (id: string) => void }) {
+  if (!favourites.length) return <p className="muted center">Add some teams on My teams and their stats show up here.</p>;
+  return (
+    <>
+      <h2 className="sport">Your teams</h2>
+      {favourites.map((f) => <OverviewCard key={f.teamId} fav={f} onOpen={() => onOpen(f.teamId)} />)}
+    </>
+  );
+}
+
+function OverviewCard({ fav, onOpen }: { fav: Favourite; onOpen: () => void }) {
+  const d = useLoad(async () => {
+    const [last, next, leagueId] = await Promise.all([soft(lastFor(fav.teamId), [] as GameEvent[]), soft(nextFor(fav.teamId), [] as GameEvent[]), soft(leagueIdFor(fav), null)]);
+    const table = leagueId ? await soft(tableFor(leagueId), [] as TableRow[]) : [];
+    return { last, next, row: table.find((r) => r.teamId === fav.teamId) };
+  }, [fav.teamId]);
+  const s = summarise(fav.teamId, d.data?.last ?? []);
+  const latest = [...(d.data?.last ?? [])].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))[0];
+  const upcoming = [...(d.data?.next ?? [])].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""))[0];
+  return (
+    <section className="card overview">
+      <button className="linklike team-link" onClick={onOpen}>
+        {fav.badge && <img src={`${fav.badge}/tiny`} alt="" width={36} height={36} />}
+        <span><strong>{fav.name}</strong><span className="muted block small">{fav.league ?? fav.sport}</span></span>
+      </button>
+      {!d.data ? <p className="muted small">Loading...</p> : (
+        <>
+          <div className="mini-stats">
+            <div><span className="muted small">Position</span><strong>{d.data.row ? `#${d.data.row.rank}` : "–"}</strong></div>
+            <div><span className="muted small">Points</span><strong>{d.data.row ? d.data.row.points : "–"}</strong></div>
+            <div><span className="muted small">W-D-L</span><strong>{s.played ? `${s.wins}-${s.draws}-${s.losses}` : "–"}</strong></div>
+            <div><span className="muted small">Form</span><span className="form">{s.form.slice(0, 5).map((o, i) => <span key={i} className={`pill ${o}`}>{o}</span>)}{!s.form.length && "–"}</span></div>
+          </div>
+          {latest && <p className="small"><span className="muted">Last: </span>{latest.homeTeam} {latest.homeScore != null ? <strong>{latest.homeScore} - {latest.awayScore}</strong> : "vs"} {latest.awayTeam}</p>}
+          {upcoming && <p className="small"><span className="muted">Next: </span>{upcoming.homeTeam} vs {upcoming.awayTeam}<span className="muted"> · {upcoming.date}</span></p>}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** League tables for every league your teams play in. */
+function AllStandings({ favourites, league, onLeague }: { favourites: Favourite[]; league?: string; onLeague: (id: string) => void }) {
+  const ids = favourites.map((f) => f.teamId).join(",");
+  const leagues = useLoad(async () => {
+    const found = await Promise.all(favourites.map(async (f) => ({ id: await soft(leagueIdFor(f), null), name: f.league ?? f.sport })));
+    const seen = new Map<string, string>();
+    for (const l of found) if (l.id && !seen.has(l.id)) seen.set(l.id, l.name);
+    return [...seen.entries()].map(([id, name]) => ({ id, name }));
+  }, [ids]);
+  const current = league ?? leagues.data?.[0]?.id;
+  const table = useLoad(() => (current ? tableFor(current) : Promise.resolve([] as TableRow[])), [current]);
+
+  if (!favourites.length) return <p className="muted center">Add some teams on My teams and their league tables show up here.</p>;
+  if (!leagues.data) return <p className="muted center">Loading...</p>;
+  if (!leagues.data.length) return <p className="muted card">None of your teams' leagues have standings available.</p>;
+  const mine = new Set(favourites.map((f) => f.teamId));
+  return (
+    <>
+      {leagues.data.length > 1 && (
+        <nav className="tabs scroll-tabs">
+          {leagues.data.map((l) => <button key={l.id} className={l.id === current ? "active" : ""} onClick={() => onLeague(l.id)}>{l.name}</button>)}
+        </nav>
+      )}
+      {table.failed ? <p className="muted card">Standings are unavailable right now.</p>
+        : !table.data ? <p className="muted center">Loading...</p>
+        : <Standings league={leagues.data.find((l) => l.id === current)?.name ?? null} rows={table.data} highlight={mine} />}
+    </>
   );
 }
 

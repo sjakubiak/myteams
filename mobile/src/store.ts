@@ -6,6 +6,8 @@ export type Favourite = {
   sport: string;
   league: string | null;
   badge: string | null;
+  /** League id for standings; missing on teams saved by older versions (looked up when needed). */
+  leagueId?: string | null;
   /** Score alerts. Always false until the user turns them on for this team. */
   notify: boolean;
 };

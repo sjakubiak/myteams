@@ -16,3 +16,11 @@ button.linklike { background: none; border: 0; padding: 0; font: inherit; color:
 .player-more { padding: 0 0 12px 56px; } .player-more p { margin: 4px 0; }
 .watch { list-style: none; margin: 8px 0 12px; padding: 0; } .watch li { padding: 6px 0; border-bottom: 1px solid var(--line); } .watch li:last-child { border-bottom: 0; }
 select.search { margin-top: 6px; }
+.bottom-nav button { font-size: .72rem; }
+.overview .team-link { margin-bottom: 10px; }
+.mini-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px; }
+.mini-stats > div { display: flex; flex-direction: column; gap: 2px; }
+.mini-stats strong { font-size: 1.1rem; }
+.mini-stats .form { gap: 3px; flex-wrap: wrap; }
+.mini-stats .pill { min-width: 20px; padding: 1px 4px; font-size: .7rem; }
+.overview p { margin: 4px 0; }
