@@ -109,13 +109,14 @@ export async function nextEvents(teamId: string): Promise<GameEvent[]> {
 }
 
 export async function leagueTable(leagueId: string): Promise<TableRow[]> {
-  const league = await get<{ leagues: Raw[] | null }>(`lookupleague.php?id=${encodeURIComponent(leagueId)}`, 86400);
-  const season = league.leagues?.[0]?.strCurrentSeason;
-  if (!season) return [];
-  const data = await get<{ table: Raw[] | null }>(
+  const league = await get<{ leagues: Raw[] | null }>(`lookupleague.php?id=${encodeURIComponent(leagueId)}`, 86400).catch(() => ({ leagues: null }));
+  const season = league.leagues?.[0]?.strCurrentSeason ?? "";
+  let data = await get<{ table: Raw[] | null }>(
     `lookuptable.php?l=${encodeURIComponent(leagueId)}&s=${encodeURIComponent(season)}`,
     600,
   );
+  // Some leagues only answer without the season parameter.
+  if (!data.table?.length) data = await get<{ table: Raw[] | null }>(`lookuptable.php?l=${encodeURIComponent(leagueId)}`, 600);
   return (data.table ?? []).map((r) => ({
     rank: Number(r.intRank ?? 0),
     teamId: r.idTeam ?? "",
@@ -176,4 +177,27 @@ export async function tvListings(eventId: string): Promise<TvListing[]> {
   return (data.tvevent ?? [])
     .filter((r) => r.strChannel && r.strCountry)
     .map((r) => ({ channel: r.strChannel!, country: r.strCountry!, logo: r.strLogo || null }));
+}
+
+export type StatLine = { label: string; values: { name: string; value: string }[] };
+
+const STAT_SKIP = /^(id|str(Player|Team|Thumb|Cutout|Badge|Logo|Locked)|date|idTeam|idPlayer|idLeague)/i;
+const prettify = (k: string) =>
+  k.replace(/^(int|str|dbl)/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").trim();
+
+/**
+ * Season stats for a player. TheSportsDB doesn't document this response, so it is read defensively:
+ * every row of the first list in the reply becomes a line, labelled by season/competition, showing
+ * its non-empty values.
+ */
+export async function playerStats(playerId: string): Promise<StatLine[]> {
+  const data = await get<Record<string, unknown>>(`lookupplayerstats.php?id=${encodeURIComponent(playerId)}`, 86400);
+  const rows = Object.values(data).find((v) => Array.isArray(v)) as Raw[] | undefined;
+  return (rows ?? []).map((r) => {
+    const label = [r.strSeason, r.strLeague ?? r.strCompetition, r.strTeam].filter(Boolean).join(" · ") || "Stats";
+    const values = Object.entries(r)
+      .filter(([k, v]) => v != null && v !== "" && v !== "0" && !STAT_SKIP.test(k) && !/^(strSeason|strLeague|strCompetition)$/.test(k))
+      .map(([k, v]) => ({ name: prettify(k), value: String(v) }));
+    return { label, values };
+  }).filter((l) => l.values.length);
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
-import { getTeam, lastEvents, leagueTable, nextEvents, searchTeams, teamPlayers, tvListings, type Player, type TableRow, type Team } from "../../lib/sportsdb.ts";
+import { getTeam, lastEvents, leagueTable, nextEvents, playerStats, searchTeams, teamPlayers, tvListings, type Player, type StatLine, type TableRow, type Team } from "../../lib/sportsdb.ts";
 import { byCountry, countryFromLocale, matchesCountry, normalizeCountry, watchSearchUrl } from "../../lib/watch.ts";
 import { outcomeFor, summarise, youTubeId, type GameEvent } from "../../lib/stats.ts";
 import { teamNews, timeAgo, type NewsItem } from "../../lib/news.ts";
@@ -19,7 +19,7 @@ type Route =
   | { view: "teams" }
   | { view: "team"; id: string; tab: TeamTab }
   | { view: "feed"; tab: "news" | "highlights" }
-  | { view: "stats" }
+  | { view: "stats"; tab?: "team" | "players" }
   | { view: "standings"; league?: string };
 
 // One request per league/team per session, shared by every screen.
@@ -137,7 +137,15 @@ export default function App() {
           />
         )}
         {route.view === "stats" && (
-          <Overview favourites={favourites} onOpen={(id) => go({ view: "team", id, tab: "stats" })} />
+          <>
+            <nav className="tabs">
+              <button className={route.tab !== "players" ? "active" : ""} onClick={() => replace({ view: "stats", tab: "team" })}>Team stats</button>
+              <button className={route.tab === "players" ? "active" : ""} onClick={() => replace({ view: "stats", tab: "players" })}>Player stats</button>
+            </nav>
+            {route.tab === "players"
+              ? <PlayerStatsView favourites={favourites} />
+              : <Overview favourites={favourites} onOpen={(id) => go({ view: "team", id, tab: "stats" })} />}
+          </>
         )}
         {route.view === "standings" && (
           <AllStandings favourites={favourites} league={route.league} onLeague={(league) => replace({ view: "standings", league })} />
@@ -339,7 +347,7 @@ function TeamView({ id, tab, fav, onTab }: {
 }
 
 function Standings({ league, rows, teamId, highlight }: { league: string | null; rows: TableRow[]; teamId?: string; highlight?: Set<string> }) {
-  if (!rows.length) return <p className="muted card">No standings available for this league.</p>;
+  if (!rows.length) return <p className="muted card">No standings available for this league. The free sports data only includes tables for the main football leagues; a premium data key unlocks the rest.</p>;
   return (
     <section className="card">
       <h2>{league ?? "League"} standings</h2>
@@ -399,6 +407,68 @@ function OverviewCard({ fav, onOpen }: { fav: Favourite; onOpen: () => void }) {
   );
 }
 
+const squadFor = (f: Favourite) => once(`squad:${f.teamId}`, () => teamPlayers(f.teamId, f.name));
+const statsFor = (playerId: string) => once(`pstats:${playerId}`, () => playerStats(playerId));
+
+/** Squads of your teams; tap a player to load their season stats. */
+function PlayerStatsView({ favourites }: { favourites: Favourite[] }) {
+  const [teamId, setTeamId] = useState<string | undefined>(favourites[0]?.teamId);
+  const fav = favourites.find((f) => f.teamId === teamId) ?? favourites[0];
+  const squad = useLoad(() => (fav ? squadFor(fav) : Promise.resolve([] as Player[])), [fav?.teamId]);
+  const [open, setOpen] = useState<string | null>(null);
+
+  if (!favourites.length) return <p className="muted center">Add some teams on My teams to see their players.</p>;
+  const sorted = [...(squad.data ?? [])].sort((a, b) => positionRank(a.position) - positionRank(b.position) || a.name.localeCompare(b.name));
+  return (
+    <>
+      {favourites.length > 1 && (
+        <nav className="tabs scroll-tabs">
+          {favourites.map((f) => <button key={f.teamId} className={f.teamId === fav?.teamId ? "active" : ""} onClick={() => { setTeamId(f.teamId); setOpen(null); }}>{f.name}</button>)}
+        </nav>
+      )}
+      <section className="card">
+        {squad.failed ? <p className="muted">Player data is unavailable right now.</p>
+          : !squad.data ? <p className="muted">Loading...</p>
+          : !sorted.length ? <p className="muted">No squad listed for this team yet.</p>
+          : (
+            <ul className="players">
+              {sorted.map((p) => (
+                <li key={p.id}>
+                  <button className="linklike player" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>
+                    {p.photo ? <img src={`${p.photo}/tiny`} alt="" width={44} height={44} className="player-photo" /> : <span className="player-photo blank" />}
+                    <span className="grow">
+                      <strong>{p.number ? `${p.number}. ` : ""}{p.name}</strong>
+                      <span className="muted small block">{[p.position, p.nationality].filter(Boolean).join(" · ")}</span>
+                    </span>
+                    <span className="muted small">{open === p.id ? "Hide" : "Stats"}</span>
+                  </button>
+                  {open === p.id && <PlayerStatLines playerId={p.id} />}
+                </li>
+              ))}
+            </ul>
+          )}
+      </section>
+    </>
+  );
+}
+
+function PlayerStatLines({ playerId }: { playerId: string }) {
+  const stats = useLoad(() => statsFor(playerId), [playerId]);
+  if (stats.failed) return <p className="player-more muted small">Stats are unavailable for this player right now.</p>;
+  if (!stats.data) return <p className="player-more muted small">Loading...</p>;
+  if (!stats.data.length) return <p className="player-more muted small">No season stats listed for this player yet.</p>;
+  return (
+    <div className="player-more">
+      {stats.data.map((l: StatLine, i) => (
+        <div key={i} className="stat-line">
+          <strong className="small">{l.label}</strong>
+          <div className="stat-grid">{l.values.map((v) => <div key={v.name}><span className="muted small">{v.name}</span><strong>{v.value}</strong></div>)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** League tables for every league your teams play in. */
 function AllStandings({ favourites, league, onLeague }: { favourites: Favourite[]; league?: string; onLeague: (id: string) => void }) {
   const ids = favourites.map((f) => f.teamId).join(",");
@@ -413,7 +483,7 @@ function AllStandings({ favourites, league, onLeague }: { favourites: Favourite[
 
   if (!favourites.length) return <p className="muted center">Add some teams on My teams and their league tables show up here.</p>;
   if (!leagues.data) return <p className="muted center">Loading...</p>;
-  if (!leagues.data.length) return <p className="muted card">None of your teams' leagues have standings available.</p>;
+  if (!leagues.data.length) return <p className="muted card">None of your teams' leagues have standings available. The free sports data only includes tables for the main football leagues; a premium data key unlocks the rest.</p>;
   const mine = new Set(favourites.map((f) => f.teamId));
   return (
     <>

@@ -24,3 +24,6 @@ select.search { margin-top: 6px; }
 .mini-stats .form { gap: 3px; flex-wrap: wrap; }
 .mini-stats .pill { min-width: 20px; padding: 1px 4px; font-size: .7rem; }
 .overview p { margin: 4px 0; }
+.stat-line { margin-bottom: 10px; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 4px; }
+.stat-grid > div { display: flex; flex-direction: column; }
