@@ -6,3 +6,13 @@ button.linklike { background: none; border: 0; padding: 0; font: inherit; color:
 .tabs button { flex: 1; text-align: center; padding: 8px; border-radius: 7px; color: var(--muted); font: inherit; font-weight: 500; background: none; border: 0; }
 .tabs button.active { background: var(--accent); color: #fff; }
 .disclaimer { font-size: .75rem; text-align: center; margin: 24px 0 8px; }
+.scroll-tabs { overflow-x: auto; scrollbar-width: none; }
+.scroll-tabs::-webkit-scrollbar { display: none; }
+.scroll-tabs button { flex: 0 0 auto; padding: 8px 14px; white-space: nowrap; }
+.players { list-style: none; margin: 0 0 12px; padding: 0; }
+.players li { border-bottom: 1px solid var(--line); } .players li:last-child { border-bottom: 0; }
+.player { display: flex; gap: 12px; align-items: center; width: 100%; padding: 10px 0; }
+.player-photo { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: var(--line); flex-shrink: 0; display: inline-block; }
+.player-more { padding: 0 0 12px 56px; } .player-more p { margin: 4px 0; }
+.watch { list-style: none; margin: 8px 0 12px; padding: 0; } .watch li { padding: 6px 0; border-bottom: 1px solid var(--line); } .watch li:last-child { border-bottom: 0; }
+select.search { margin-top: 6px; }

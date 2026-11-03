@@ -129,3 +129,51 @@ export async function leagueTable(leagueId: string): Promise<TableRow[]> {
     goalDifference: Number(r.intGoalDifference ?? 0),
   }));
 }
+
+export type Player = {
+  id: string;
+  name: string;
+  position: string | null;
+  number: string | null;
+  nationality: string | null;
+  born: string | null;
+  height: string | null;
+  photo: string | null;
+  description: string | null;
+};
+
+export function toPlayer(r: Raw): Player {
+  return {
+    id: r.idPlayer!,
+    name: r.strPlayer ?? "",
+    position: r.strPosition || null,
+    number: r.strNumber || null,
+    nationality: r.strNationality || null,
+    born: r.dateBorn || null,
+    height: r.strHeight || null,
+    photo: r.strCutout || r.strThumb || r.strRender || null,
+    description: r.strDescriptionEN || null,
+  };
+}
+
+/** The squad. Tries the full squad endpoint, then falls back to a search by team name (free key). */
+export async function teamPlayers(teamId: string, teamName: string): Promise<Player[]> {
+  try {
+    const data = await get<{ player: Raw[] | null }>(`lookup_all_players.php?id=${encodeURIComponent(teamId)}`, 86400);
+    if (data.player?.length) return data.player.map(toPlayer);
+  } catch {
+    /* fall through */
+  }
+  const data = await get<{ player: Raw[] | null }>(`searchplayers.php?t=${encodeURIComponent(teamName)}`, 86400);
+  return (data.player ?? []).map(toPlayer);
+}
+
+export type TvListing = { channel: string; country: string; logo: string | null };
+
+/** TV channels showing a game, by country, where TheSportsDB has them. */
+export async function tvListings(eventId: string): Promise<TvListing[]> {
+  const data = await get<{ tvevent: Raw[] | null }>(`lookuptv.php?id=${encodeURIComponent(eventId)}`, 3600);
+  return (data.tvevent ?? [])
+    .filter((r) => r.strChannel && r.strCountry)
+    .map((r) => ({ channel: r.strChannel!, country: r.strCountry!, logo: r.strLogo || null }));
+}

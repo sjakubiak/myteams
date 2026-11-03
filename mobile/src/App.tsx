@@ -2,15 +2,22 @@ import { useCallback, useEffect, useState } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
-import { getTeam, lastEvents, leagueTable, nextEvents, searchTeams, type TableRow, type Team } from "../../lib/sportsdb.ts";
+import { getTeam, lastEvents, leagueTable, nextEvents, searchTeams, teamPlayers, tvListings, type Player, type TableRow, type Team } from "../../lib/sportsdb.ts";
+import { byCountry, countryFromLocale, matchesCountry, normalizeCountry, watchSearchUrl } from "../../lib/watch.ts";
 import { outcomeFor, summarise, youTubeId, type GameEvent } from "../../lib/stats.ts";
 import { teamNews, timeAgo, type NewsItem } from "../../lib/news.ts";
 import { addFavourite, loadFavourites, removeFavourite, setNotify, type Favourite } from "./store.ts";
 import { askPermission, checkScores, primeTeam } from "./alerts.ts";
 
+type TeamTab = "stats" | "table" | "players" | "watch" | "news" | "highlights";
+const TEAM_TABS: { id: TeamTab; label: string }[] = [
+  { id: "stats", label: "Stats" }, { id: "table", label: "Standings" }, { id: "players", label: "Players" },
+  { id: "watch", label: "Watch" }, { id: "news", label: "News" }, { id: "highlights", label: "Highlights" },
+];
+
 type Route =
   | { view: "teams" }
-  | { view: "team"; id: string; tab: "stats" | "news" | "highlights" }
+  | { view: "team"; id: string; tab: TeamTab }
   | { view: "feed"; tab: "news" | "highlights" };
 
 const POLL_MS = 5 * 60 * 1000;
@@ -232,13 +239,13 @@ function useLoad<T>(fn: () => Promise<T>, deps: unknown[]): { data: T | undefine
 const soft = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
 
 function TeamView({ id, tab, fav, onTab }: {
-  id: string; tab: "stats" | "news" | "highlights"; fav?: Favourite; onTab: (t: "stats" | "news" | "highlights") => void;
+  id: string; tab: TeamTab; fav?: Favourite; onTab: (t: TeamTab) => void;
 }) {
   const team = useLoad(() => getTeam(id), [id]);
   const recent = useLoad(() => soft(lastEvents(id), [] as GameEvent[]), [id]);
-  const upcoming = useLoad(() => (tab === "stats" ? soft(nextEvents(id), [] as GameEvent[]) : Promise.resolve([])), [id, tab]);
+  const upcoming = useLoad(() => soft(nextEvents(id), [] as GameEvent[]), [id]);
   const t = team.data;
-  const table = useLoad(() => (tab === "stats" && t?.leagueId ? soft(leagueTable(t.leagueId), [] as TableRow[]) : Promise.resolve([] as TableRow[])), [t?.leagueId, tab]);
+  const table = useLoad(() => (t?.leagueId ? soft(leagueTable(t.leagueId), [] as TableRow[]) : Promise.resolve([] as TableRow[])), [t?.leagueId]);
   const news = useLoad(() => (tab === "news" && t ? teamNews(t.name, t.sport) : Promise.resolve([] as NewsItem[])), [t?.name, tab]);
 
   if (team.failed) return <p className="muted center">Couldn't load this team. Check your connection.</p>;
@@ -256,11 +263,21 @@ function TeamView({ id, tab, fav, onTab }: {
           {fav && <p className="muted small">Score alerts are {fav.notify ? "on" : "off"} for this team.</p>}
         </div>
       </header>
-      <nav className="tabs">
-        {(["stats", "news", "highlights"] as const).map((x) => (
-          <button key={x} className={x === tab ? "active" : ""} onClick={() => onTab(x)}>{x[0].toUpperCase() + x.slice(1)}</button>
+      <nav className="tabs scroll-tabs">
+        {TEAM_TABS.map((x) => (
+          <button key={x.id} className={x.id === tab ? "active" : ""} onClick={() => onTab(x.id)}>{x.label}</button>
         ))}
       </nav>
+
+      {tab === "table" && (table.data === undefined
+        ? <p className="muted center">Loading...</p>
+        : <Standings league={t.league} rows={table.data} teamId={id} />)}
+
+      {tab === "players" && <Players teamId={id} teamName={t.name} />}
+
+      {tab === "watch" && (upcoming.data === undefined
+        ? <p className="muted center">Loading...</p>
+        : <Watch events={upcoming.data} />)}
 
       {tab === "news" && (
         <section className="card">
@@ -285,25 +302,131 @@ function TeamView({ id, tab, fav, onTab }: {
           )}
           <section className="card"><h2>Recent results</h2>{recent.data?.length ? <Games teamId={id} events={recent.data} /> : <p className="muted">No recent results available.</p>}</section>
           <section className="card"><h2>Upcoming</h2>{upcoming.data?.length ? <Games teamId={id} events={upcoming.data} /> : <p className="muted">No upcoming games listed.</p>}</section>
-          {!!table.data?.length && (
-            <section className="card">
-              <h2>{t.league} table</h2>
-              <div className="scroll">
-                <table>
-                  <thead><tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr></thead>
-                  <tbody>{table.data.map((r) => (
-                    <tr key={r.teamId} className={r.teamId === id ? "me" : ""}>
-                      <td>{r.rank}</td><td>{r.team}</td><td>{r.played}</td><td>{r.win}</td><td>{r.draw}</td><td>{r.loss}</td><td>{r.goalDifference}</td><td><strong>{r.points}</strong></td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>
-            </section>
-          )}
           {t.description && <section className="card"><h2>About</h2><p className="about">{t.description.split("\n")[0]}</p></section>}
         </>
       )}
     </article>
+  );
+}
+
+function Standings({ league, rows, teamId }: { league: string | null; rows: TableRow[]; teamId: string }) {
+  if (!rows.length) return <p className="muted card">No standings available for this league.</p>;
+  return (
+    <section className="card">
+      <h2>{league ?? "League"} standings</h2>
+      <div className="scroll">
+        <table>
+          <thead><tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr></thead>
+          <tbody>{rows.map((r) => (
+            <tr key={r.teamId} className={r.teamId === teamId ? "me" : ""}>
+              <td>{r.rank}</td><td>{r.team}</td><td>{r.played}</td><td>{r.win}</td><td>{r.draw}</td><td>{r.loss}</td><td>{r.goalDifference}</td><td><strong>{r.points}</strong></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+const POSITION_ORDER = ["goalkeeper", "defender", "midfielder", "forward", "attacker", "winger", "striker"];
+const positionRank = (p: string | null) => {
+  const i = POSITION_ORDER.findIndex((x) => (p ?? "").toLowerCase().includes(x));
+  return i === -1 ? 99 : i;
+};
+
+function Players({ teamId, teamName }: { teamId: string; teamName: string }) {
+  const players = useLoad(() => teamPlayers(teamId, teamName), [teamId]);
+  const [open, setOpen] = useState<string | null>(null);
+  if (players.failed) return <p className="muted card">Player data is unavailable right now.</p>;
+  if (!players.data) return <p className="muted center">Loading...</p>;
+  if (!players.data.length) return <p className="muted card">No squad listed for this team yet.</p>;
+  const sorted = [...players.data].sort((a, b) => positionRank(a.position) - positionRank(b.position) || a.name.localeCompare(b.name));
+  return (
+    <section className="card">
+      <h2>Squad</h2>
+      <ul className="players">
+        {sorted.map((p: Player) => {
+          const age = p.born ? Math.floor((Date.now() - Date.parse(p.born)) / 31557600000) : null;
+          return (
+            <li key={p.id}>
+              <button className="linklike player" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>
+                {p.photo ? <img src={`${p.photo}/tiny`} alt="" width={44} height={44} className="player-photo" /> : <span className="player-photo blank" />}
+                <span className="grow">
+                  <strong>{p.number ? `${p.number}. ` : ""}{p.name}</strong>
+                  <span className="muted small block">{[p.position, p.nationality, age && !isNaN(age) ? `Age ${age}` : null].filter(Boolean).join(" · ")}</span>
+                </span>
+              </button>
+              {open === p.id && (
+                <div className="player-more muted small">
+                  {p.height && <p>Height: {p.height}</p>}
+                  {p.born && <p>Born: {p.born}</p>}
+                  {p.description ? <p className="about">{p.description.split("\n")[0]}</p> : <p>No profile available.</p>}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="muted small">Season stats per player (goals, assists and so on) aren't in the free data yet.</p>
+    </section>
+  );
+}
+
+const COUNTRY_KEY = "myteams.watchCountry.v1";
+
+function Watch({ events }: { events: GameEvent[] }) {
+  const deviceCountry = countryFromLocale(navigator.language);
+  const [country, setCountry] = useState<string>(() => {
+    try { return localStorage.getItem(COUNTRY_KEY) || deviceCountry || "All countries"; } catch { return deviceCountry || "All countries"; }
+  });
+  const ids = events.map((e) => e.id).join(",");
+  const listings = useLoad(async () => {
+    const all = await Promise.all(events.slice(0, 5).map(async (e) => ({ event: e, tv: await soft(tvListings(e.id), []) })));
+    return all;
+  }, [ids]);
+
+  function choose(c: string) {
+    setCountry(c);
+    try { localStorage.setItem(COUNTRY_KEY, c); } catch { /* ignore */ }
+  }
+
+  if (!events.length) return <p className="muted card">No upcoming games listed.</p>;
+  if (!listings.data) return <p className="muted center">Loading...</p>;
+  const countries = [...new Set([...(deviceCountry ? [deviceCountry] : []), ...listings.data.flatMap((x) => x.tv.map((l) => normalizeCountry(l.country)))])].sort();
+  const searchCountry = country === "All countries" ? null : country;
+
+  return (
+    <>
+      <section className="card">
+        <label className="muted small" htmlFor="country">Show channels for</label>
+        <select id="country" className="search" value={country} onChange={(e) => choose(e.target.value)}>
+          <option>All countries</option>
+          {countries.map((c) => <option key={c}>{c}</option>)}
+        </select>
+      </section>
+      {listings.data.map(({ event: e, tv }) => {
+        const shown = searchCountry ? tv.filter((l) => matchesCountry(l.country, searchCountry)) : tv;
+        const groups = byCountry(shown);
+        return (
+          <section key={e.id} className="card">
+            <h2>{e.homeTeam} vs {e.awayTeam}</h2>
+            <p className="muted small">{[e.date, e.time?.slice(0, 5), e.league].filter(Boolean).join(" · ")}</p>
+            {groups.length ? (
+              <ul className="watch">
+                {groups.map((g) => (
+                  <li key={g.country}><strong>{g.country}</strong><span className="muted"> {g.channels.map((c) => c.channel).join(", ")}</span></li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted small">No TV listings{searchCountry ? ` for ${searchCountry}` : ""} yet.</p>
+            )}
+            <a className="btn small" href={watchSearchUrl(e.homeTeam, e.awayTeam, searchCountry)} target="_blank" rel="noopener noreferrer">
+              Search where to watch{searchCountry ? ` in ${searchCountry}` : ""}
+            </a>
+          </section>
+        );
+      })}
+    </>
   );
 }
 
