@@ -1,0 +1,76 @@
+name: Mobile app (Play Store)
+
+# Builds the self-contained My Teams app in mobile/ (no server, favourites stored on the phone).
+# Publishes a GitHub pre-release with:
+#   MyTeams-test.apk     installable test build (debug-signed)
+#   MyTeams-release.aab  Play Store bundle; signed here if ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD
+#                        secrets are set, otherwise unsigned (sign it before uploading to Play).
+
+on:
+  push:
+    branches: [main, standalone-app]
+    paths: ["mobile/**", "lib/**", "app/globals.css", ".github/workflows/mobile.yml"]
+  pull_request:
+    paths: ["mobile/**", "lib/**", "app/globals.css", ".github/workflows/mobile.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build web app and sync to Android
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run build
+          npx cap sync android
+
+      - name: Restore signing key
+        if: env.HAS_KEY == 'true'
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build APK and Play bundle
+        working-directory: mobile/android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ env.HAS_KEY == 'true' && format('{0}/release.jks', runner.temp) || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug bundleRelease
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/MyTeams-test.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "$GITHUB_WORKSPACE/MyTeams-release.aab"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MyTeams-mobile
+          path: |
+            MyTeams-test.apk
+            MyTeams-release.aab
+
+      - name: Publish pre-release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "app-1.0.${GITHUB_RUN_NUMBER}" MyTeams-test.apk MyTeams-release.aab \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "My Teams app 1.0.${GITHUB_RUN_NUMBER}" \
+            --notes "Self-contained app. MyTeams-test.apk installs directly on a phone. MyTeams-release.aab is for the Play Store (signed: ${HAS_KEY})."

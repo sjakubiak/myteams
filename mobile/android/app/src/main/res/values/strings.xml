@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">My Teams</string>
+    <string name="title_activity_main">My Teams</string>
+    <string name="package_name">com.sjakubiak.myteams</string>
+    <string name="custom_url_scheme">com.sjakubiak.myteams</string>
+</resources>
