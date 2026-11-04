@@ -410,43 +410,103 @@ function OverviewCard({ fav, onOpen }: { fav: Favourite; onOpen: () => void }) {
 const squadFor = (f: Favourite) => once(`squad:${f.teamId}`, () => teamPlayers(f.teamId, f.name));
 const statsFor = (playerId: string) => once(`pstats:${playerId}`, () => playerStats(playerId));
 
-/** Squads of your teams; tap a player to load their season stats. */
+const LEADER_PREFS = ["Goals", "Points", "Assists", "Rebounds", "Touchdowns", "Passing Yards", "Rushing Yards", "Home Runs", "Hits", "Wickets", "Runs", "Tries", "Appearances"];
+const numeric = (v: string) => { const n = Number(String(v).replace(/,/g, "")); return isFinite(n) ? n : null; };
+
+/** Each player's numbers from their most recent season line. */
+function latestLine(lines: StatLine[] | undefined): Map<string, number> {
+  const m = new Map<string, number>();
+  const line = [...(lines ?? [])].sort((a, b) => b.label.localeCompare(a.label))[0];
+  for (const v of line?.values ?? []) { const n = numeric(v.value); if (n != null) m.set(v.name, n); }
+  return m;
+}
+
+/** Team leaders: your teams' squads ranked by a chosen stat. Stats load in the background, a few at a time. */
 function PlayerStatsView({ favourites }: { favourites: Favourite[] }) {
   const [teamId, setTeamId] = useState<string | undefined>(favourites[0]?.teamId);
   const fav = favourites.find((f) => f.teamId === teamId) ?? favourites[0];
   const squad = useLoad(() => (fav ? squadFor(fav) : Promise.resolve([] as Player[])), [fav?.teamId]);
+  const [stats, setStats] = useState<Record<string, StatLine[]>>({});
+  const [done, setDone] = useState(0);
+  const [stat, setStat] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
+  useEffect(() => {
+    let live = true;
+    setStats({}); setDone(0);
+    (async () => {
+      for (const p of squad.data ?? []) {
+        if (!live) return;
+        const lines = await soft(statsFor(p.id), [] as StatLine[]);
+        if (!live) return;
+        setStats((s) => ({ ...s, [p.id]: lines }));
+        setDone((d) => d + 1);
+      }
+    })();
+    return () => { live = false; };
+  }, [squad.data]);
+
   if (!favourites.length) return <p className="muted center">Add some teams on My teams to see their players.</p>;
-  const sorted = [...(squad.data ?? [])].sort((a, b) => positionRank(a.position) - positionRank(b.position) || a.name.localeCompare(b.name));
+  const players = squad.data ?? [];
+  const numbers = new Map(players.map((p) => [p.id, latestLine(stats[p.id])]));
+  const available = new Set<string>();
+  numbers.forEach((m) => m.forEach((_, k) => available.add(k)));
+  const statNames = [...available].sort((a, b) => {
+    const ia = LEADER_PREFS.indexOf(a), ib = LEADER_PREFS.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
+  });
+  const chosen = stat && available.has(stat) ? stat : statNames[0] ?? null;
+  const ranked = [...players].sort((a, b) => {
+    if (chosen) {
+      const va = numbers.get(a.id)?.get(chosen), vb = numbers.get(b.id)?.get(chosen);
+      if (va != null || vb != null) return (vb ?? -Infinity) - (va ?? -Infinity);
+    }
+    return positionRank(a.position) - positionRank(b.position) || a.name.localeCompare(b.name);
+  });
+  const loading = players.length > 0 && done < players.length;
+
   return (
     <>
       {favourites.length > 1 && (
         <nav className="tabs scroll-tabs">
-          {favourites.map((f) => <button key={f.teamId} className={f.teamId === fav?.teamId ? "active" : ""} onClick={() => { setTeamId(f.teamId); setOpen(null); }}>{f.name}</button>)}
+          {favourites.map((f) => <button key={f.teamId} className={f.teamId === fav?.teamId ? "active" : ""} onClick={() => { setTeamId(f.teamId); setOpen(null); setStat(null); }}>{f.name}</button>)}
         </nav>
       )}
       <section className="card">
-        {squad.failed ? <p className="muted">Player data is unavailable right now.</p>
-          : !squad.data ? <p className="muted">Loading...</p>
-          : !sorted.length ? <p className="muted">No squad listed for this team yet.</p>
+        <h2>Team leaders</h2>
+        {statNames.length > 0 && (
+          <div className="chips">
+            {statNames.slice(0, 12).map((n) => <button key={n} className={`chip ${n === chosen ? "active" : ""}`} onClick={() => setStat(n)}>{n}</button>)}
+          </div>
+        )}
+        {loading && <p className="muted small">Loading player stats {done} of {players.length}...</p>}
+        {squad.failed ? <p className="muted">Player data is unavailable right now. Try again in a minute.</p>
+          : !squad.data ? <p className="muted">Loading squad...</p>
+          : !players.length ? <p className="muted">No squad listed for this team yet.</p>
           : (
-            <ul className="players">
-              {sorted.map((p) => (
-                <li key={p.id}>
-                  <button className="linklike player" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>
-                    {p.photo ? <img src={`${p.photo}/tiny`} alt="" width={44} height={44} className="player-photo" /> : <span className="player-photo blank" />}
-                    <span className="grow">
-                      <strong>{p.number ? `${p.number}. ` : ""}{p.name}</strong>
-                      <span className="muted small block">{[p.position, p.nationality].filter(Boolean).join(" · ")}</span>
-                    </span>
-                    <span className="muted small">{open === p.id ? "Hide" : "Stats"}</span>
-                  </button>
-                  {open === p.id && <PlayerStatLines playerId={p.id} />}
-                </li>
-              ))}
-            </ul>
+            <ol className="players leaders">
+              {ranked.map((p, i) => {
+                const v = chosen ? numbers.get(p.id)?.get(chosen) : undefined;
+                return (
+                  <li key={p.id}>
+                    <button className="linklike player" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>
+                      <span className="rank muted">{v != null ? i + 1 : ""}</span>
+                      {p.photo ? <img src={`${p.photo}/tiny`} alt="" width={40} height={40} className="player-photo" /> : <span className="player-photo blank" />}
+                      <span className="grow">
+                        <strong>{p.name}</strong>
+                        <span className="muted small block">{[p.position, p.number ? `#${p.number}` : null].filter(Boolean).join(" · ")}</span>
+                      </span>
+                      <strong className="leader-value">{v != null ? v : "–"}</strong>
+                    </button>
+                    {open === p.id && <PlayerStatLines playerId={p.id} />}
+                  </li>
+                );
+              })}
+            </ol>
           )}
+        {!loading && players.length > 0 && statNames.length === 0 && (
+          <p className="muted small">No season stats are listed for this squad yet, so players are shown by position.</p>
+        )}
       </section>
     </>
   );

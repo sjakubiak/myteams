@@ -27,3 +27,9 @@ select.search { margin-top: 6px; }
 .stat-line { margin-bottom: 10px; }
 .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 4px; }
 .stat-grid > div { display: flex; flex-direction: column; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 6px; scrollbar-width: none; }
+.chip { flex: 0 0 auto; border: 1px solid var(--line); background: var(--bg); color: var(--muted); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: .85rem; }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.leaders { list-style: none; padding: 0; }
+.rank { width: 22px; text-align: right; font-size: .85rem; flex-shrink: 0; }
+.leader-value { font-size: 1.15rem; min-width: 32px; text-align: right; }

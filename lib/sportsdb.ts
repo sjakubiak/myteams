@@ -36,18 +36,86 @@ export type TableRow = {
 
 type Raw = Record<string, string | null | undefined>;
 
-async function get<T = Raw>(path: string, revalidate = 300): Promise<T> {
-  const res = await fetch(`${BASE}/${path}`, { next: { revalidate } } as RequestInit);
-  const text = await res.text();
-  if (!res.ok) {
-    console.error(`TheSportsDB ${path} -> HTTP ${res.status}: ${text.slice(0, 200)}`);
-    throw new Error(`TheSportsDB ${path} failed: ${res.status}`);
+// --- Request pacing and caching -------------------------------------------------------------
+// TheSportsDB allows about 30 requests a minute per user and answers 429 above that. Screens like
+// Stats and Standings fire many requests at once, so requests are paced, retried on 429, and (in
+// the phone app, where localStorage exists) cached so repeat visits don't hit the API at all.
+const MAX_PER_MINUTE = 25;
+const sent: number[] = [];
+let queue: Promise<void> = Promise.resolve();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function slot(): Promise<void> {
+  const next = queue.then(async () => {
+    for (;;) {
+      const now = Date.now();
+      while (sent.length && now - sent[0] > 60_000) sent.shift();
+      if (sent.length < MAX_PER_MINUTE) { sent.push(now); return; }
+      await sleep(60_000 - (now - sent[0]) + 50);
+    }
+  });
+  queue = next.catch(() => {});
+  return next;
+}
+
+const CACHE_PREFIX = "tsdb:";
+type Cached = { at: number; body: string };
+function store(): Storage | null {
+  try { return typeof localStorage === "undefined" ? null : localStorage; } catch { return null; }
+}
+function readCache(path: string): Cached | null {
+  try { const raw = store()?.getItem(CACHE_PREFIX + path); return raw ? (JSON.parse(raw) as Cached) : null; } catch { return null; }
+}
+function writeCache(path: string, body: string) {
+  const s = store(); if (!s) return;
+  try { s.setItem(CACHE_PREFIX + path, JSON.stringify({ at: Date.now(), body })); }
+  catch {
+    // Storage full: drop the oldest cached responses and try once more.
+    try {
+      const keys = Object.keys(s).filter((k) => k.startsWith(CACHE_PREFIX));
+      keys.sort((a, b) => (JSON.parse(s.getItem(a)!).at as number) - (JSON.parse(s.getItem(b)!).at as number));
+      keys.slice(0, Math.ceil(keys.length / 2)).forEach((k) => s.removeItem(k));
+      s.setItem(CACHE_PREFIX + path, JSON.stringify({ at: Date.now(), body }));
+    } catch { /* give up quietly */ }
   }
+}
+
+function parse<T>(path: string, text: string): T {
   try {
     return (text ? JSON.parse(text) : {}) as T;
   } catch {
     console.error(`TheSportsDB ${path} returned non-JSON: ${text.slice(0, 200)}`);
     throw new Error(`TheSportsDB ${path} returned an unexpected response`);
+  }
+}
+
+async function get<T = Raw>(path: string, revalidate = 300): Promise<T> {
+  const cached = readCache(path);
+  if (cached && Date.now() - cached.at < revalidate * 1000) return parse<T>(path, cached.body);
+
+  for (let attempt = 0; ; attempt++) {
+    await slot();
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/${path}`, { next: { revalidate } } as RequestInit);
+    } catch (e) {
+      if (cached) return parse<T>(path, cached.body); // offline: use what we have
+      throw e;
+    }
+    const text = await res.text();
+    if (res.status === 429 && attempt < 3) {
+      const wait = Number(res.headers.get("retry-after")) * 1000 || [5_000, 15_000, 30_000][attempt];
+      await sleep(wait);
+      continue;
+    }
+    if (!res.ok) {
+      console.error(`TheSportsDB ${path} -> HTTP ${res.status}: ${text.slice(0, 200)}`);
+      if (cached) return parse<T>(path, cached.body);
+      throw new Error(`TheSportsDB ${path} failed: ${res.status}`);
+    }
+    const body = parse<T>(path, text);
+    writeCache(path, text);
+    return body;
   }
 }
 

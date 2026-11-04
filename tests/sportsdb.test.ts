@@ -31,3 +31,18 @@ test("standings retry without season", async () => {
   assert.equal(rows[0].team, "A");
   m.mock.restore();
 });
+
+test("retries after a 429", async () => {
+  let n = 0;
+  const m = mock.method(globalThis, "fetch", async () => {
+    n++;
+    return n === 1
+      ? new Response("slow down", { status: 429, headers: { "retry-after": "0.01" } })
+      : new Response(JSON.stringify({ teams: [{ idTeam: "1", strTeam: "A", strSport: "Soccer" }] }));
+  });
+  const { searchTeams } = await import("../lib/sportsdb.ts");
+  const teams = await searchTeams("A");
+  assert.equal(teams[0].name, "A");
+  assert.equal(n, 2);
+  m.mock.restore();
+});
